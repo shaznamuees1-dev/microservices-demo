@@ -8,3 +8,5 @@ python-dotenv
 pytest
 httpx
 email-validator
+
+python-multipart
