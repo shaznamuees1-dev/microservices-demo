@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   auth-db:
     image: postgres:16
@@ -26,3 +24,43 @@ services:
       auth-db:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+  order-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: orderdb
+      POSTGRES_USER: order
+      POSTGRES_PASSWORD: orderpass
+    ports:
+      - '5434:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U order -d orderdb']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  order-service:
+    build: ./order-service
+    ports:
+      - '8002:8002'
+    environment:
+      DATABASE_URL: postgresql://order:orderpass@order-db:5432/orderdb
+      SECRET_KEY: supersecretkey123changeInProd
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      order-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload

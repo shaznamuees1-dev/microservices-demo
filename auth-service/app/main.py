@@ -6,6 +6,21 @@ from app import models, schemas, auth
 import secrets
 import time
 
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+security = HTTPBearer()
+
+def require_role(required_role: str):
+    def role_checker(credentials: HTTPAuthorizationCredentials = Depends(security)):
+        try:
+            payload = auth.decode_token(credentials.credentials)
+            if payload.get('role') != required_role:
+                raise HTTPException(status_code=403, detail='Insufficient permissions')
+            return payload
+        except Exception:
+            raise HTTPException(status_code=401, detail='Invalid token')
+    return role_checker
+
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title='Auth Service')
@@ -176,3 +191,7 @@ def userinfo(request: Request, db: Session = Depends(get_db)):
         'email': payload['email'],
         'role': payload['role']
     }
+
+@app.get('/admin-only')
+def admin_only(payload: dict = Depends(require_role('ADMIN'))):
+    return {'message': f'Welcome admin {payload["email"]}'}
