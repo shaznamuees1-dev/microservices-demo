@@ -2,6 +2,41 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db, engine
 from app import models, schemas, auth
+import pika
+import json
+import os
+
+def publish_order_created(order_id: int, user_id: str, item: str, quantity: int):
+    try:
+        rabbitmq_url = os.getenv('RABBITMQ_URL', 'amqp://guest:guest@localhost:5672/')
+        connection = pika.BlockingConnection(pika.URLParameters(rabbitmq_url))
+        channel = connection.channel()
+
+        # Declare exchange and queue
+        channel.exchange_declare(exchange='orders', exchange_type='topic', durable=True)
+        channel.queue_declare(queue='notifications', durable=True)
+        channel.queue_bind(exchange='orders', queue='notifications', routing_key='order.created')
+
+        # Publish message
+        message = json.dumps({
+            'event': 'OrderCreated',
+            'order_id': order_id,
+            'user_id': user_id,
+            'item': item,
+            'quantity': quantity
+        })
+
+        channel.basic_publish(
+            exchange='orders',
+            routing_key='order.created',
+            body=message,
+            properties=pika.BasicProperties(delivery_mode=2)  # persistent message
+        )
+
+        connection.close()
+        print(f'Published OrderCreated event for order {order_id}')
+    except Exception as e:
+        print(f'Failed to publish event: {e}')
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -25,6 +60,7 @@ def create_order(
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
+    publish_order_created(new_order.id, new_order.user_id, new_order.item, new_order.quantity)
     return new_order
 
 @app.get('/orders', response_model=list[schemas.OrderResponse])
